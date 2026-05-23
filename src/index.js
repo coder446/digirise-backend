@@ -36,7 +36,7 @@ const allowedOrigins = process.env.NODE_ENV === 'production'
     ].filter(Boolean)
     : ['http://localhost:3000', 'http://localhost:3001'];
 
-app.use(cors({
+const corsOptions = {
     origin: function (origin, callback) {
         if (!origin) return callback(null, true);
         if (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) {
@@ -51,17 +51,17 @@ app.use(cors({
         const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
         return callback(new Error(msg), false);
     },
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
-}));
+};
+
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 
 const startServer = async () => {
     try {
         app.set('trust proxy', 1);
-
-        // Build AdminJS
-        const { admin, adminRouter } = await buildAdminRouter();
 
         // Global CSP Middleware (to fix the 'none' error on all routes)
         app.use((req, res, next) => {
@@ -72,47 +72,58 @@ const startServer = async () => {
             next();
         });
 
-        // 1. AdminJS Assets & Router
-        const componentsBundlePath = resolveComponentsBundlePath();
-        app.get('/admin/frontend/assets/components.bundle.js', (req, res) => {
-            try {
-                if (componentsBundlePath) {
-                    const bundle = fs.readFileSync(componentsBundlePath, 'utf8');
-                    return res.type('application/javascript').send(bundle);
-                }
-            } catch (error) {
-                console.warn('AdminJS components bundle could not be read; serving a minimal JavaScript fallback.');
-            }
-
-            res.type('application/javascript').send(
-                'window.AdminJS = window.AdminJS || {}; window.AdminJS.UserComponents = window.AdminJS.UserComponents || {};' 
-            );
-        });
-
-        app.use(admin.options.rootPath, (req, res, next) => {
-            console.log(`[AdminJS] Serving request: ${req.method} ${req.url}`);
-            next();
-        }, adminRouter);
-
-        // 2. Generic Middleware (placed after AdminJS)
         app.use(express.json());
 
-        // 3. API Routes
+        // Public API routes should remain available even if AdminJS fails to bootstrap.
         app.use('/api/projects', projectRoutes);
         app.use('/api/blog', blogRoutes);
         app.use('/api/services', serviceRoutes);
         app.use('/api/submissions', submissionRoutes);
 
-        // 4. Health Check
+        app.get('/api/health', (req, res) => {
+            res.json({ ok: true, service: 'DigitalRise Marketing API' });
+        });
+
         app.get('/', (req, res) => {
             res.json({ message: 'DigitalRise Marketing API is running...' });
         });
 
         app.listen(PORT, '0.0.0.0', () => {
             console.log(`\n🚀 Server is running on port ${PORT}`);
-            console.log(`🔗 API Health: http://localhost:${PORT}/`);
-            console.log(`🛡️  AdminJS:    http://localhost:${PORT}${admin.options.rootPath}\n`);
+            console.log(`🔗 API Health: http://localhost:${PORT}/api/health`);
+            console.log(`🛡️  AdminJS:    initializing separately...\n`);
         });
+
+        void (async () => {
+            try {
+                const { admin, adminRouter } = await buildAdminRouter();
+                const componentsBundlePath = resolveComponentsBundlePath();
+
+                app.get('/admin/frontend/assets/components.bundle.js', (req, res) => {
+                    try {
+                        if (componentsBundlePath) {
+                            const bundle = fs.readFileSync(componentsBundlePath, 'utf8');
+                            return res.type('application/javascript').send(bundle);
+                        }
+                    } catch (error) {
+                        console.warn('AdminJS components bundle could not be read; serving a minimal JavaScript fallback.');
+                    }
+
+                    res.type('application/javascript').send(
+                        'window.AdminJS = window.AdminJS || {}; window.AdminJS.UserComponents = window.AdminJS.UserComponents || {};' 
+                    );
+                });
+
+                app.use(admin.options.rootPath, (req, res, next) => {
+                    console.log(`[AdminJS] Serving request: ${req.method} ${req.url}`);
+                    next();
+                }, adminRouter);
+
+                console.log(`🛡️  AdminJS mounted at http://localhost:${PORT}${admin.options.rootPath}`);
+            } catch (error) {
+                console.warn('⚠️  AdminJS failed to initialize; public API remains available.', error.message);
+            }
+        })();
     } catch (err) {
         console.error('❌ Failed to start server:', err);
         process.exit(1);
