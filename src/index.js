@@ -32,7 +32,7 @@ const allowedOrigins = process.env.NODE_ENV === 'production'
         'https://www.digitalrisemarketing.in',
         'https://digitalrise-marketing.onrender.com',
         'https://www.digitalrise-marketing.onrender.com',
-        "https://digitalrise-marketing-backend-3.onrender.com"
+        'https://captivating-purpose-production-88fb.up.railway.app'
     ].filter(Boolean)
     : ['http://localhost:3000', 'http://localhost:3001'];
 
@@ -77,7 +77,9 @@ const startServer = async () => {
         // Public API routes should remain available even if AdminJS fails to bootstrap.
         app.use('/api/projects', projectRoutes);
         app.use('/api/blog', blogRoutes);
+        app.use('/api/blogs', blogRoutes);
         app.use('/api/services', serviceRoutes);
+        app.use('/api/api/services', serviceRoutes);
         app.use('/api/submissions', submissionRoutes);
 
         app.get('/api/health', (req, res) => {
